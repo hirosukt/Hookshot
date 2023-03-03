@@ -50,6 +50,7 @@ class Plugin : JavaPlugin(), Listener {
         val pos = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition ?: return
         val item = e.crossbow
 
+        if (item?.itemMeta?.hasCustomModelData() == false) return
         if (item?.itemMeta?.customModelData != 1) return
 
         player.playSound(Sound.sound(Key.key("item.trident.throw"), Sound.Source.AMBIENT, 1f, 1f))
