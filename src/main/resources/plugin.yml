@@ -1,4 +1,4 @@
-name: # TODO
+name: Hookshot
 version: '1.0.0'
 main: love.chihuyu.Plugin
 authors: [ Hirosuke ]
