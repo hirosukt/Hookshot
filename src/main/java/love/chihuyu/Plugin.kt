@@ -1,14 +1,17 @@
 package love.chihuyu
 
 import io.papermc.paper.event.entity.EntityLoadCrossbowEvent
+import love.chihuyu.utils.runTaskTimer
 import org.bukkit.FluidCollisionMode
 import org.bukkit.Location
+import org.bukkit.Particle
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityShootBowEvent
 import org.bukkit.metadata.FixedMetadataValue
 import org.bukkit.plugin.java.JavaPlugin
+import org.bukkit.util.Vector
 
 class Plugin : JavaPlugin(), Listener {
 
@@ -27,13 +30,21 @@ class Plugin : JavaPlugin(), Listener {
     @EventHandler
     fun onLoad(e: EntityLoadCrossbowEvent) {
         val player = e.entity as? Player ?: return
-        val block = player.rayTraceBlocks(40.0, FluidCollisionMode.NEVER)?.hitBlock ?: return
-//        if (e.crossbow?.type != Material.ARROW) return
+        val pos = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition ?: return
         player.sendMessage("Hooked!")
         player.setMetadata("hookshot_isHooked", FixedMetadataValue(this, true))
-        player.setMetadata("hookshot_hookedPoint_x", FixedMetadataValue(this, block.location.x))
-        player.setMetadata("hookshot_hookedPoint_y", FixedMetadataValue(this, block.location.y))
-        player.setMetadata("hookshot_hookedPoint_z", FixedMetadataValue(this, block.location.z))
+        player.setMetadata("hookshot_hookedPoint_x", FixedMetadataValue(this, pos.x))
+        player.setMetadata("hookshot_hookedPoint_y", FixedMetadataValue(this, pos.y))
+        player.setMetadata("hookshot_hookedPoint_z", FixedMetadataValue(this, pos.z))
+
+        plugin.runTaskTimer(0 ,1) {
+            repeat(20) {
+                var playerPos = player.location.toVector().subtract(pos)
+                playerPos = playerPos.subtract(Vector((playerPos.x / 20) * it, (playerPos.y / 20) * it, (playerPos.z / 20) * it))
+                player.world.spawnParticle(Particle.CRIT, playerPos.x + pos.x, playerPos.y + pos.y + 1.3 * (1 / 20.0) * (20 - it), playerPos.z + pos.z, 1, .0, .0, .0, .0)
+            }
+            if (!player.getMetadata("hookshot_isHooked")[0].asBoolean()) cancel()
+        }
     }
 
     @EventHandler
