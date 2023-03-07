@@ -8,16 +8,13 @@ import love.chihuyu.utils.runTaskLater
 import love.chihuyu.utils.runTaskTimer
 import net.kyori.adventure.key.Key
 import net.kyori.adventure.sound.Sound
-import org.bukkit.ChatColor
-import org.bukkit.FluidCollisionMode
-import org.bukkit.Material
-import org.bukkit.Particle
+import org.bukkit.*
+import org.bukkit.Particle.DustOptions
 import org.bukkit.entity.Arrow
 import org.bukkit.entity.Player
 import org.bukkit.event.EventHandler
 import org.bukkit.event.Listener
 import org.bukkit.event.entity.EntityShootBowEvent
-import org.bukkit.event.player.PlayerMoveEvent
 import org.bukkit.metadata.FixedMetadataValue
 import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.util.Vector
@@ -47,67 +44,74 @@ class Plugin : JavaPlugin(), Listener {
     @EventHandler
     fun onLoad(e: EntityLoadCrossbowEvent) {
         val player = e.entity as? Player ?: return
-        val pos = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition ?: return
         val item = e.crossbow
+        val density = 20
 
         if (item?.itemMeta?.hasCustomModelData() == false) return
         if (item?.itemMeta?.customModelData != 1) return
 
-        player.playSound(Sound.sound(Key.key("item.trident.throw"), Sound.Source.AMBIENT, 1f, 1f))
         player.setMetadata("hookshot_isHooked", FixedMetadataValue(plugin, true))
-        player.setMetadata("hookshot_hookedPoint_x", FixedMetadataValue(this, pos.x))
-        player.setMetadata("hookshot_hookedPoint_y", FixedMetadataValue(this, pos.y))
-        player.setMetadata("hookshot_hookedPoint_z", FixedMetadataValue(this, pos.z))
-
-        plugin.runTaskLater(20) {
-            player.playSound(Sound.sound(Key.key("item.trident.hit_ground"), Sound.Source.AMBIENT, 1f, 1f))
-        }
+        player.removeMetadata("hookshot_isHookable", this)
 
         plugin.runTaskTimer(0 ,1) {
-            repeat(20) {
-                var playerPos = player.location.toVector().subtract(pos)
-                playerPos = playerPos.subtract(Vector((playerPos.x / 20) * it, (playerPos.y / 20) * it, (playerPos.z / 20) * it))
-                plugin.runTaskLater(it * 1L) {
-                    player.world.spawnParticle(Particle.CRIT, playerPos.x + pos.x, playerPos.y + pos.y + 1.3 * (1 / 20.0) * (20 - it), playerPos.z + pos.z, 1, .0, .0, .0, .0)
+
+            val hookable = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition == null
+            if (player.getMetadata("hookshot_isHookable").isNotEmpty()) {
+                if (player.getMetadata("hookshot_isHookable")[0].asBoolean() != hookable) {
+                    player.playSound(Sound.sound(Key.key("entity.item.pickup"), Sound.Source.AMBIENT, 1f, 1f))
                 }
             }
+            player.setMetadata("hookshot_isHookable", FixedMetadataValue(plugin, hookable))
+
+            repeat(density) {
+                val pos = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition
+                val fixedPos = pos ?: player.location.toVector().add(player.location.direction.multiply(80))
+                var playerPos = player.location.toVector().subtract(pos ?: fixedPos)
+                playerPos = playerPos.subtract(Vector((playerPos.x / density) * it, (playerPos.y / density) * it, (playerPos.z / density) * it))
+                player.spawnParticle(
+                    Particle.REDSTONE,
+                    playerPos.x + fixedPos.x,
+                    playerPos.y + fixedPos.y + (1.3 * ((1.0 / density) * (density - it))),
+                    playerPos.z + fixedPos.z,
+                    1, .0, .0, .0, 1.0, DustOptions(if (pos == null) Color.RED else Color.LIME, .7f)
+                )
+            }
+            if (player.getMetadata("hookshot_isHooked").isEmpty()) cancel()
             if (!player.getMetadata("hookshot_isHooked")[0].asBoolean()) cancel()
         }
     }
 
     @EventHandler
     fun onLaunch(e: EntityShootBowEvent) {
-        val player = e.entity as? Player ?: return
-        val proj = e.projectile as? Arrow ?: return
+        if (e.bow?.itemMeta?.hasCustomModelData() == false) return
+        if (e.bow?.itemMeta?.customModelData != 1) return
 
+        val player = e.entity as? Player ?: return
+        if (player.getMetadata("hookshot_isHooked").isEmpty()) return
         if (!player.getMetadata("hookshot_isHooked")[0].asBoolean()) return
+
+        player.setMetadata("hookshot_isHooked", FixedMetadataValue(this, false))
+        e.isCancelled = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition == null
+
+        val targetPos = player.rayTraceBlocks(80.0, FluidCollisionMode.NEVER)?.hitPosition ?: return
+        val proj = e.projectile as? Arrow ?: return
         val pos = player.location.toVector()
-        val target = Vector(
-            player.getMetadata("hookshot_hookedPoint_x")[0].asDouble(),
-            player.getMetadata("hookshot_hookedPoint_y")[0].asDouble(),
-            player.getMetadata("hookshot_hookedPoint_z")[0].asDouble()
-        )
-        val diff = target.subtract(pos)
+        val diff = targetPos.subtract(pos)
+
         proj.velocity = diff.multiply(0.05).add(Vector(.0, .44, .0)).setX(diff.x * .13).setZ(diff.z * .13)
         proj.addPassenger(player)
         proj.setGravity(true)
         proj.isSilent = true
         proj.isCritical = false
-        player.setMetadata("hookshot_isHooked", FixedMetadataValue(this, false))
+
         player.velocity = player.velocity.add(diff.setY(diff.y / 2))
+        player.playSound(Sound.sound(Key.key("block.anvil.place"), Sound.Source.AMBIENT, 1f, .6f))
 
         var count = 0
         plugin.runTaskTimer(0, 1) {
-            repeat(20) {
-                var playerPos = player.location.toVector().subtract(pos)
-                playerPos = playerPos.subtract(Vector((playerPos.x / 20) * it, (playerPos.y / 20) * it, (playerPos.z / 20) * it))
-                plugin.runTaskLater(it * 1L) {
-                    player.world.spawnParticle(Particle.CRIT, playerPos.x + pos.x, playerPos.y + pos.y + 1.3 * (1 / 20.0) * (20 - it), playerPos.z + pos.z, 1, .0, .0, .0, .0)
-                }
-            }
+            count++
             player.playSound(Sound.sound(Key.key("ui.button.click"), Sound.Source.AMBIENT, 1f, 2f))
             proj.velocity = proj.velocity.multiply(Vector(1.148, 1.0, 1.148))
-            count++
             if (count == 24) {
                 proj.remove()
                 plugin.runTaskLater(1) {
@@ -117,22 +121,5 @@ class Plugin : JavaPlugin(), Listener {
                 cancel()
             }
         }
-    }
-
-    @EventHandler
-    fun onMove(e: PlayerMoveEvent) {
-        val player = e.player
-        val pos = player.location.toVector()
-
-        if (!player.getMetadata("hookshot_isHooked")[0].asBoolean()) return
-        val target = Vector(
-            player.getMetadata("hookshot_hookedPoint_x")[0].asDouble(),
-            player.getMetadata("hookshot_hookedPoint_y")[0].asDouble(),
-            player.getMetadata("hookshot_hookedPoint_z")[0].asDouble()
-        )
-        val diff = target.subtract(pos)
-        if (pos.distance(target) <= 170) return
-
-        player.velocity = player.velocity.add(Vector(.0021 * diff.x, .001 * diff.y, .0021 * diff.z))
     }
 }
